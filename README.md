@@ -63,6 +63,7 @@ Bark / ntfy 推送 → 你的手机
 - 📳 新增 ntfy 推送渠道：`PUSH_PROVIDER=ntfy` 时可用 Android / 桌面 / 自建 ntfy 服务接收主动消息。
 - 📔 新增自动日记：唤醒模型可以选择输出 `[DIARY]...[/DIARY]`，系统会保存到本地 `diary/YYYY-MM-DD.md`。
 - 🔁 修复非流式转发兼容：Kelivo 关闭 stream 时，Gateway 会按普通 JSON 返回，不再强制包装成 SSE。
+- ☁️ 新增云端部署开关：Railway / Render 等公网部署可设置 `ALLOW_PUBLIC_API=true`，避免 Kelivo 访问 `/v1/...` 时被局域网保护拦成 403。
 
 ## 📋 更新日志（2026-06-26）
 
@@ -134,6 +135,7 @@ TARGET_API_KEY=sk-你的APIKey
 MODEL_NAME=你的模型
 BARK_KEY=你的Bark设备Key
 CUSTOM_ICON_URL=https://你的图标URL（可选）
+ALLOW_PUBLIC_API=false
 PUSH_PROVIDER=bark
 NTFY_SERVER_URL=https://ntfy.sh
 NTFY_TOPIC=
@@ -414,6 +416,16 @@ http://localhost:3000/test-bark
 2. 在平台的环境变量设置中填入 `.env` 中的所有参数
 3. 启动命令使用 `node server.js`，并确保 `wake_up.js` 同时运行（可使用 pm2 或平台多进程支持）
 4. 如果希望远程访问管理页面，需配置 HTTPS 和域名，并修改 `ADMIN_USER` / `ADMIN_PASSWORD` 为强密码
+
+如果部署在 Railway / Render 这类公网平台，并且 Kelivo 需要从公网访问 Gateway，请额外设置：
+
+```env
+ALLOW_PUBLIC_API=true
+```
+
+默认值是 `false`，用于保护本机/局域网部署：非管理路由只允许本机和局域网访问。云端不打开这个开关时，Kelivo 请求 `/v1/chat/completions` 可能会收到 `403 Forbidden`。
+
+注意：`ALLOW_PUBLIC_API=true` 只开放 `/v1/...` 模型接口；`/internal/...` 仍然保持内部接口，不会被这个开关放到公网。
 
 **推荐使用 pm2 管理进程**（全平台兼容）：
 

@@ -24,6 +24,12 @@ const TIMELINE_FILE = "enhanced_messages.json";
 const TIMESTAMP_DB_FILE = "./message_timestamps.json";
 const DEFAULT_RESTART_COMMAND = "pm2 restart gateway wake-up";
 
+function readBooleanEnv(key, fallback = false) {
+  const raw = String(process.env[key] ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
 // ========================
 // 多模态消息处理
 // ========================
@@ -359,6 +365,7 @@ const PREFERRED_ENV_ORDER = [
   "MODEL_NAME",
   "BARK_KEY",
   "CUSTOM_ICON_URL",
+  "ALLOW_PUBLIC_API",
   "PUSH_PROVIDER",
   "NTFY_SERVER_URL",
   "NTFY_TOPIC",
@@ -445,6 +452,8 @@ function readRestartCommand() {
 // ========================
 app.addHook("onRequest", (req, reply, done) => {
   if (req.url.startsWith("/admin")) return done();
+  // 批注 2026-07-11：本地部署默认只允许局域网；Railway/Render 等云端部署需显式打开公网 /v1 API，内部接口仍不外放。
+  if (readBooleanEnv("ALLOW_PUBLIC_API", false) && req.url.startsWith("/v1/")) return done();
   const ip = req.ip || req.connection.remoteAddress;
   if (ip === "127.0.0.1" || ip === "::1" || ip === "localhost") return done();
   if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) return done();

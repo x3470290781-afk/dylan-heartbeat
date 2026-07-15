@@ -30,6 +30,12 @@ function readBooleanEnv(key, fallback = false) {
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
+function configuredModelName() {
+  // 批注 2026-07-15：/v1/models 要暴露部署者实际配置的模型名；
+  // 不能继续硬编码示例模型，否则 Kelivo 模型选择会和真实上游不一致。
+  return String(process.env.MODEL_NAME || "gateway-model").trim() || "gateway-model";
+}
+
 // ========================
 // 多模态消息处理
 // ========================
@@ -471,7 +477,7 @@ app.addHook("onRequest", (req, reply, done) => {
 app.get("/v1/models", async (req, reply) => {
   reply.send({
     object: "list",
-    data: [{ id: "DeepSeek-V4-Pro", object: "model", created: 0, owned_by: "gateway" }]
+    data: [{ id: configuredModelName(), object: "model", created: 0, owned_by: "gateway" }]
   });
 });
 

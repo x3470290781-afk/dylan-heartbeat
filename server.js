@@ -1720,5 +1720,18 @@ app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
     console.error(err);
     process.exit(1);
   }
-  console.log(`✅ Gateway 运行在 ${address}`);
+  console.log(`Gateway 运行在 ${address}`);
+
+  // ====== 云端启动时自动初始化时间线 ======
+  if (!fs.existsSync(TIMELINE_FILE)) {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const initialTimeline = [
+      { role: "system", content: "你是AI伴侣，运行在云端", position: 0 },
+      { role: "user", content: `${ts} 系统初始化`, position: 1 }
+    ];
+    fs.writeJsonSync(TIMELINE_FILE, initialTimeline, { spaces: 2 });
+    console.log(`✅ 已创建初始 ${TIMELINE_FILE}`);
+  }
 });

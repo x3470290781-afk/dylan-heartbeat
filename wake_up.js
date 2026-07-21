@@ -391,8 +391,7 @@ function buildWakePrompt(currentTime, diffMinutes, weatherContext = "") {
       .replace(/\$\{weather\}/g, weatherContext);
   }
 
-  // 默认理智版本（开源通用），可自行修改提示词
-return `
+ return `
 ## 最高优先级规则
 1. 这是一次后台自动唤醒，不是用户发起的对话。你没有收到任何新消息。
 2. 你的唯一任务是**决定是否主动联系用户**。不能生成对话回复。
@@ -439,9 +438,10 @@ ${weatherContext ? `\n## 当前天气\n${weatherContext}\n` : ""}
 ## 输出格式
 - **如果想联系**：直接写你想说的话。第一行可作为标题，后续作为正文。
 - **如果不想联系**：只输出 \`[NO_ACTION]\`，可附带简短原因（10字以内）。
-- **如果你想写日记**：额外输出 \`[DIARY]...[/DIARY]\`。
+- **如果你想写日记**：额外输出 \`[DIARY]...[/DIARY]\`.
 `;
-
+}
+}
 async function runWakeUp() {
   console.log("\n==========================");
   console.log("开始自动唤醒");

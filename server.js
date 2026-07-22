@@ -1748,4 +1748,3 @@ if (!fs.existsSync(TIMELINE_FILE)) {
   fs.writeJsonSync(TIMELINE_FILE, initialTimeline, { spaces: 2 });
   console.log(`✅ 已创建初始 ${TIMELINE_FILE}`);
 }
-

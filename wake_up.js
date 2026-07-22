@@ -339,18 +339,18 @@ async function fetchWeatherContext() {
   }
 }
 
-// ========== 加载时间线（新增等待逻辑） ==========
+// ========== 加载时间线（含等待逻辑） ==========
 function loadTimelineMessages() {
   // 如果文件不存在，最多等待 5 秒（每 500ms 检查一次）
   if (!fs.existsSync(TIMELINE_PATH)) {
     console.log("enhanced_messages.json 尚未创建，等待 server.js 生成...");
     let attempts = 0;
-    const maxAttempts = 10; // 5秒
+    const maxAttempts = 10;
     while (attempts < maxAttempts) {
       attempts++;
       const waitMs = 500;
       const start = Date.now();
-      while (Date.now() - start < waitMs) {} // 同步等待
+      while (Date.now() - start < waitMs) {}
       if (fs.existsSync(TIMELINE_PATH)) {
         console.log("enhanced_messages.json 已创建，继续启动");
         break;
@@ -410,15 +410,17 @@ function parseTimelineTimestamp(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-// ========== 获取最后用户时间（使用记忆库） ==========
+// ========== 获取最后用户时间（纯解析，无 position 回退） ==========
 function getLastUserTime(messages) {
   const tsDB = loadTimestampDB();
   const reversed = [...messages].reverse();
   for (const msg of reversed) {
     if (msg.role !== "user") continue;
     const content = normalizeContentToText(msg.content);
+    // 1. 从内容直接提取
     let ts = parseTimelineTimestamp(content);
     if (ts) return ts;
+    // 2. 通过记忆库指纹找回（辅助，非必需）
     const fp = makeFingerprint(msg);
     if (tsDB[fp]) return new Date(tsDB[fp]);
     const fpStripped = makeFingerprintStripped(msg);

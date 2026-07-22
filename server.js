@@ -30,6 +30,7 @@ const app = Fastify({
 });
 
 app.register(require("@fastify/formbody"));
+app.register(require("@fastify/multipart"));
 
 const PORT = Number(process.env.PORT) || 3000;
 const TARGET_API_URL = process.env.TARGET_API_URL;

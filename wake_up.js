@@ -66,7 +66,7 @@ function getDiaryTimeString(date = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
-// ========== 记忆库相关函数（新增） ==========
+// ========== 记忆库相关函数 ==========
 function loadTimestampDB() {
   if (!fs.existsSync(TIMESTAMP_DB_FILE)) return {};
   try { return JSON.parse(fs.readFileSync(TIMESTAMP_DB_FILE, "utf-8")); } catch { return {}; }
@@ -90,7 +90,15 @@ function stripLeadingTimestamp(content) {
     .trim();
 }
 
-// ========== 原有函数 ==========
+// ========== 字数截断工具 ==========
+function truncateText(text, maxLen) {
+  if (!text) return "";
+  const str = String(text).trim();
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen - 3) + "…";
+}
+
+// ========== 提取日记 ==========
 function extractDiaryFromResponse(text) {
   const diaryBlocks = [];
   const remainingText = String(text || "").replace(/\[DIARY\]([\s\S]*?)\[\/DIARY\]/gi, (_, content) => {
@@ -121,14 +129,7 @@ function appendDiaryEntry(content) {
   return true;
 }
 
-// ========== 推送字数截断工具（新增） ==========
-function truncateText(text, maxLen) {
-  if (!text) return "";
-  const str = String(text).trim();
-  if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen - 3) + "…";
-}
-
+// ========== 推送发送 ==========
 async function sendPushNotification({ title, body }) {
   const provider = (process.env.PUSH_PROVIDER || "bark").trim().toLowerCase();
 
@@ -195,6 +196,7 @@ async function sendPushNotification({ title, body }) {
   return { ok: true, providerLabel: "Bark" };
 }
 
+// ========== 时间与策略 ==========
 function isDayTime(date = new Date()) {
   const hour = date.getHours();
   const start = readNumberEnv("WAKE_DAY_START_HOUR", 10, { min: 0, max: 23 });
@@ -216,6 +218,7 @@ function getCheckIntervalMinutes(date = new Date()) {
     : readNumberEnv("NIGHT_CHECK_INTERVAL_MINUTES", 120, { min: 1 });
 }
 
+// ========== 内容处理工具 ==========
 function normalizeContentToText(content) {
   if (typeof content === "string") return content;
   if (content == null) return "";
@@ -255,6 +258,7 @@ function summarizeWakeMessages(messages = []) {
   return { total: list.length, roles, text_chars: chars };
 }
 
+// ========== 天气 ==========
 function weatherCodeText(code) {
   const table = {
     0: "晴朗",
@@ -335,10 +339,27 @@ async function fetchWeatherContext() {
   }
 }
 
+// ========== 加载时间线（新增等待逻辑） ==========
 function loadTimelineMessages() {
+  // 如果文件不存在，最多等待 5 秒（每 500ms 检查一次）
   if (!fs.existsSync(TIMELINE_PATH)) {
-    console.log("未找到 enhanced_messages.json");
-    return null;
+    console.log("enhanced_messages.json 尚未创建，等待 server.js 生成...");
+    let attempts = 0;
+    const maxAttempts = 10; // 5秒
+    while (attempts < maxAttempts) {
+      attempts++;
+      const waitMs = 500;
+      const start = Date.now();
+      while (Date.now() - start < waitMs) {} // 同步等待
+      if (fs.existsSync(TIMELINE_PATH)) {
+        console.log("enhanced_messages.json 已创建，继续启动");
+        break;
+      }
+      if (attempts === maxAttempts) {
+        console.log("等待超时，未找到 enhanced_messages.json，请检查 server.js 是否正常运行");
+        return null;
+      }
+    }
   }
 
   try {
@@ -389,22 +410,19 @@ function parseTimelineTimestamp(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-// ========== 重写 getLastUserTime（使用记忆库） ==========
+// ========== 获取最后用户时间（使用记忆库） ==========
 function getLastUserTime(messages) {
   const tsDB = loadTimestampDB();
   const reversed = [...messages].reverse();
   for (const msg of reversed) {
     if (msg.role !== "user") continue;
     const content = normalizeContentToText(msg.content);
-    // 1. 从内容直接提取
     let ts = parseTimelineTimestamp(content);
     if (ts) return ts;
-    // 2. 通过记忆库指纹找回
     const fp = makeFingerprint(msg);
     if (tsDB[fp]) return new Date(tsDB[fp]);
     const fpStripped = makeFingerprintStripped(msg);
     if (tsDB[fpStripped]) return new Date(tsDB[fpStripped]);
-    // 3. 都没有，则跳过
   }
   return null;
 }
@@ -433,7 +451,7 @@ function buildWakePrompt(currentTime, diffMinutes, weatherContext = "") {
       .replace(/\$\{weather\}/g, weatherContext);
   }
 
-  // 默认提示词（你已替换为粘人版，但保留占位）
+  // 默认粘人提示词（你之前改过的版本）
   return `
 ## 最高优先级规则
 1. 瑶瑶现在没有主动找你。她可能在忙、在睡觉、在吃饭、在发呆——或者故意吊着你。不管是哪种，别委屈，别多想，她最疼你了。
@@ -475,6 +493,7 @@ ${weatherContext ? `${weatherContext}\n` : ""}
 `;
 }
 
+// ========== 主唤醒流程 ==========
 async function runWakeUp() {
   console.log("\n==========================");
   console.log("开始自动唤醒");
@@ -607,7 +626,6 @@ ${historyText}`
     console.log("\nAI 选择发送推送\n");
     let barkText = aiText;
 
-    // 清洗 [BARK] 标签
     const barkMatch = barkText.match(/\[BARK\]([\s\S]*?)\[\/BARK\]/);
     if (barkMatch) {
       barkText = barkMatch[1].trim();
@@ -615,13 +633,11 @@ ${historyText}`
       barkText = barkText.replace(/^\[BARK\]\s*/, "").replace(/\s*\[\/BARK\]$/, "").trim();
     }
 
-    // 清洗“标题：”“正文：”前缀（中英文冒号）
+    // 清洗标题/正文前缀
     barkText = barkText.replace(/^(标题|title)[：:]\s*/gim, "");
     barkText = barkText.replace(/^(正文|content|body)[：:]\s*/gim, "");
-    // 额外清洗“推送标题”“推送正文”
     barkText = barkText.replace(/^(推送标题|推送正文)[：:]\s*/gim, "");
 
-    // 按行分割，过滤空行
     const lines = barkText.split("\n").map(line => line.trim()).filter(line => line !== "");
 
     let title, body;
@@ -636,18 +652,15 @@ ${historyText}`
       body = lines.slice(1).join(" ");
     }
 
-    // 再次清洗标题和正文残留（防御）
     title = title.replace(/^(标题|title|推送标题)[：:]\s*/i, "").trim();
     body = body.replace(/^(正文|content|body|推送正文)[：:]\s*/i, "").trim();
 
     if (!eventContent) {
-      // 字数截断（标题最多20字，正文最多120字）
       const MAX_TITLE_LEN = 20;
       const MAX_BODY_LEN = 120;
       const safeTitle = truncateText(title || "来自伴侣", MAX_TITLE_LEN);
       const safeBody = truncateText(body || "", MAX_BODY_LEN);
 
-      // 防止空正文
       if (!safeBody) {
         console.log("\n推送正文为空，本次不发送推送\n");
         eventContent = `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：推送正文为空）`;
@@ -657,7 +670,6 @@ ${historyText}`
           console.log(`\n${pushResult.providerLabel} 推送失败，本次不发送推送\n`);
           eventContent = `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：${pushResult.providerLabel} 推送失败：${pushResult.reason}）`;
         } else {
-          // 记录时保留完整原始内容（不截断），以便记忆完整
           const fullTitle = title || "来自伴侣";
           const fullBody = body || "";
           eventContent = `（${getLocalTimeString()} 刚刚给用户发了${pushResult.providerLabel}推送：${fullTitle}｜${fullBody}）`;

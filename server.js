@@ -48,7 +48,7 @@ function configuredModelName() {
 }
 
 // ========================
-// 多模态工具（★ 修改点1：扩展图片识别）
+// 多模态工具（★ 修改点：扩展图片识别）
 // ========================
 function shouldForwardMultimodalContent() {
   const mode = (process.env.MULTIMODAL_MODE || "passthrough").trim().toLowerCase();
@@ -63,9 +63,11 @@ function isImageContentPart(part) {
   if (!part || typeof part !== "object") return false;
   // 标准 image_url
   if (part.image_url) return true;
-  // Kelivo 可能用 file 或 data 字段
+  // Kelivo 可能用 file、data、image、url 字段
   if (part.file && typeof part.file === "string") return true;
   if (part.data && typeof part.data === "string") return true;
+  if (part.image && typeof part.image === "string") return true;
+  if (part.url && typeof part.url === "string") return true;
   const type = typeof part.type === "string" ? part.type.toLowerCase() : "";
   return type.includes("image") || type.includes("file");
 }
@@ -598,13 +600,21 @@ app.get("/v1/models", async (req, reply) => {
 });
 
 // ========================
-// Chat Completions
+// ★★★ Chat Completions（核心路由，带调试日志）★★★
 // ========================
 app.post("/v1/chat/completions", async (req, reply) => {
   try {
-    console.log("🔥 图片请求到达");
     const body = req.body;
-    console.log("📸 用户消息 content:", JSON.stringify(body.messages?.find(m => m.role === "user")?.content, null, 2));
+
+    // ★ 调试日志：打印完整请求体（截断长数据）
+    console.log("📦 完整请求体:", JSON.stringify(body, (key, val) => {
+      if (key === 'image_url' || key === 'data' || key === 'file') {
+        if (typeof val === 'string' && val.startsWith('data:image')) return val.slice(0, 50) + '...';
+      }
+      if (typeof val === 'string' && val.length > 500) return val.slice(0, 200) + '... [截断]';
+      return val;
+    }, 2));
+
     console.log(JSON.stringify({
       event: "kelivo_request",
       model: body?.model || "",
@@ -642,9 +652,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (Array.isArray(content)) {
           const imageParts = content.filter(part => isImageContentPart(part));
           if (imageParts.length > 0) {
-            // ★ 修改点2：兼容 image_url、file、data 字段
             const firstImage = imageParts[0];
-            let imageUrl = firstImage.image_url?.url || firstImage.file || firstImage.data;
+            let imageUrl = firstImage.image_url?.url || firstImage.file || firstImage.data || firstImage.image || firstImage.url;
             if (imageUrl) {
               try {
                 const description = await callVisionAPI(imageUrl);
@@ -884,7 +893,6 @@ app.get("/admin", { preHandler: basicAuth }, async (req, reply) => {
 });
 
 app.post("/admin/save", { preHandler: basicAuth }, async (req, reply) => {
-  // 保留兼容，但建议直接用 Railway Variables
   reply.send({ success: true, message: "请直接在 Railway 环境变量中修改" });
 });
 

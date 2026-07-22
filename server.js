@@ -38,9 +38,6 @@ function configuredModelName() {
   return String(process.env.MODEL_NAME || "gateway-model").trim() || "gateway-model";
 }
 
-// ========================
-// 基础工具（只处理文本）
-// ========================
 function normalizeContentToText(content) {
   if (typeof content === "string") return content;
   if (content == null) return "";
@@ -75,9 +72,6 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-// ========================
-// 读取 timeline
-// ========================
 function loadTimeline() {
   if (!fs.existsSync(TIMELINE_FILE)) return [];
   try { return fs.readJsonSync(TIMELINE_FILE); } catch { return []; }
@@ -91,9 +85,6 @@ function saveTimeline(messages) {
   fs.writeJsonSync(TIMELINE_FILE, final, { spaces: 2 });
 }
 
-// ========================
-// 提取时间戳（兼容无空格格式）
-// ========================
 function parseTimestampLabel(value) {
   const text = String(value || "");
   const match = text.match(/（?\s*(\d{4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/);
@@ -110,9 +101,6 @@ function stripLeadingTimestamp(content) {
     .trim();
 }
 
-// ========================
-// 时间戳记忆库
-// ========================
 function loadTimestampDB() {
   if (!fs.existsSync(TIMESTAMP_DB_FILE)) return {};
   try { return fs.readJsonSync(TIMESTAMP_DB_FILE); } catch { return {}; }
@@ -144,9 +132,6 @@ function extractTimestampWithMemory(msg, tsDB) {
   return null;
 }
 
-// ========================
-// 消息判断
-// ========================
 function isSpecialEvent(msg) {
   if (msg.role !== "assistant") return false;
   const c = normalizeContentToText(msg.content);
@@ -168,9 +153,6 @@ function isRealMessageForTimeline(msg) {
   return msg.role === "user" || msg.role === "assistant";
 }
 
-// ========================
-// 构建 Timeline（补时间戳）
-// ========================
 function buildTimeline(kelivoMessages, tsDB) {
   const oldTimeline = loadTimeline();
   const newSystemMessages = kelivoMessages
@@ -260,9 +242,6 @@ function buildTimeline(kelivoMessages, tsDB) {
   return result;
 }
 
-// ========================
-// 准备发给 LLM 的消息（只保留文本）
-// ========================
 function prepareMessageForLLM(msg) {
   if (msg.role === "assistant" && msg.tool_calls) return msg;
   if (msg.role === "tool") return msg;
@@ -273,9 +252,6 @@ function prepareMessageForLLM(msg) {
   return { ...msg, content: textContent };
 }
 
-// ========================
-// 追加特殊事件
-// ========================
 function appendSpecialEvent(content) {
   const timeline = loadTimeline();
   let maxPos = 0;
@@ -294,9 +270,6 @@ function stripPosition(messages) {
 
 let wakeUpLastHeartbeat = null;
 
-// ========================
-// 预设方案和 .env 读写
-// ========================
 const PRESETS_FILE = "./presets.json";
 const ENV_FILE = ".env";
 const PREFERRED_ENV_ORDER = [
@@ -379,9 +352,6 @@ function readEnvValueOrDefault(key, fallback) {
   return value === "" ? fallback : value;
 }
 
-// ========================
-// HTTP Basic Auth
-// ========================
 function basicAuth(req, reply, done) {
   const auth = req.headers.authorization || "";
   const [scheme, encoded] = auth.split(" ");
@@ -400,9 +370,6 @@ function basicAuth(req, reply, done) {
   }
 }
 
-// ========================
-// 路由安全钩子
-// ========================
 app.addHook("onRequest", (req, reply, done) => {
   if (req.url.startsWith("/admin")) return done();
   if (readBooleanEnv("ALLOW_PUBLIC_API", false) && req.url.startsWith("/v1/")) {
@@ -424,9 +391,6 @@ app.addHook("onRequest", (req, reply, done) => {
   reply.code(403).send("Forbidden");
 });
 
-// ========================
-// Models
-// ========================
 app.get("/v1/models", async (req, reply) => {
   reply.send({
     object: "list",
@@ -434,9 +398,6 @@ app.get("/v1/models", async (req, reply) => {
   });
 });
 
-// ========================
-// Chat Completions（核心转发）
-// ========================
 app.post("/v1/chat/completions", async (req, reply) => {
   try {
     const body = req.body;
@@ -467,12 +428,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const finalTimeline = buildTimeline(kelivoMessages, tsDB);
     saveTimeline(finalTimeline);
 
-    // 构建 LLM 消息（只保留文本）
     const llmMessages = kelivoMessages
       .map(prepareMessageForLLM)
       .filter(Boolean);
 
-    // 注入旧的特殊事件
     const oldEvents = stripPosition(
       oldTimeline.filter(isSpecialEvent).sort((a, b) => {
         const timeA = extractTimestampWithMemory(a, tsDB);
@@ -497,7 +456,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       if (!inserted) llmMessages.push(event);
     }
 
-    // ---- 自动修复不完整的 tool 调用 ----
+    // 自动修复 tool calls
     const removeSet = new Set();
     for (let i = 0; i < llmMessages.length; i++) {
       const msg = llmMessages[i];
@@ -583,11 +542,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
       return reply.code(response.status).send({ error: "上游 API 没有返回可读取的响应体" });
     }
 
-    reply.raw.writeHead(response.status, {
-      "Content-Type": upstreamContentType || "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive"
-    });
+    // ★ 检查是否已经发送头
+    if (!reply.raw.headersSent) {
+      reply.raw.writeHead(response.status, {
+        "Content-Type": upstreamContentType || "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive"
+      });
+    } else {
+      // 如果头已发送，我们不能再次写入头，直接返回错误
+      return reply.code(500).send({ error: "响应头已发送，无法开始流式传输" });
+    }
 
     const reader = response.body.getReader();
     while (true) {
@@ -598,10 +563,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     reply.raw.end();
   } catch (err) {
     console.error(err);
-    // ★ 修复：避免重复发送响应头
-    if (!reply.sent) {
+    // ★★ 更可靠的错误处理：检查底层 raw 是否已发送头
+    if (!reply.raw.headersSent) {
+      // 如果头还没发送，可以返回 JSON 错误
       reply.code(500).send({ error: err.message });
     } else {
+      // 如果头已发送，只能尝试结束流，不能再 send
       try { reply.raw.end(); } catch (_) {}
     }
   }
@@ -627,9 +594,6 @@ app.post("/internal/heartbeat", async (req, reply) => {
   reply.send({ status: "ok" });
 });
 
-// ========================
-// 管理页面
-// ========================
 app.get("/admin", { preHandler: basicAuth }, async (req, reply) => {
   reply.type("text/html").send(`
     <!DOCTYPE html>
@@ -664,9 +628,6 @@ app.get("/test-bark", async (req, reply) => {
   reply.send({ success: true });
 });
 
-// ========================
-// 启动服务（含自动创建时间线）
-// ========================
 app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
   if (err) {
     console.error(err);

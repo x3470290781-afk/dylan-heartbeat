@@ -603,6 +603,7 @@ app.get("/v1/models", async (req, reply) => {
 app.post("/v1/chat/completions", async (req, reply) => {
   try {
     const body = req.body;
+    console.log("📸 用户消息 content:", JSON.stringify(body.messages?.find(m => m.role === "user")?.content, null, 2));
     console.log(JSON.stringify({
       event: "kelivo_request",
       model: body?.model || "",

@@ -10,7 +10,6 @@ const path = require("path");
 const { buildNtfyPayload } = require("./ntfy_priority");
 
 const TIMELINE_PATH = path.join(__dirname, "enhanced_messages.json");
-const TIMESTAMP_DB_FILE = path.join(__dirname, "message_timestamps.json");
 const PORT = Number(process.env.PORT) || 3000;
 const GATEWAY_BASE_URL = (process.env.GATEWAY_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 const GATEWAY_URL = `${GATEWAY_BASE_URL}/internal/wake-event`;
@@ -64,30 +63,6 @@ function getDiaryDateString(date = new Date()) {
 function getDiaryTimeString(date = new Date()) {
   const parts = getDatePartsInTimeZone(date);
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
-}
-
-// ========== 记忆库相关函数 ==========
-function loadTimestampDB() {
-  if (!fs.existsSync(TIMESTAMP_DB_FILE)) return {};
-  try { return JSON.parse(fs.readFileSync(TIMESTAMP_DB_FILE, "utf-8")); } catch { return {}; }
-}
-
-function makeFingerprint(msg) {
-  const raw = normalizeContentToText(msg.content);
-  const content = raw.trim().slice(0, 150);
-  return `${msg.role}::${content}`;
-}
-
-function makeFingerprintStripped(msg) {
-  const raw = normalizeContentToText(msg.content);
-  const content = stripLeadingTimestamp(raw).slice(0, 150);
-  return `${msg.role}::${content}`;
-}
-
-function stripLeadingTimestamp(content) {
-  return String(content || "")
-    .replace(/^（?\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]?)\d{1,2}[:：]\d{2}[）\s]*/, "")
-    .trim();
 }
 
 // ========== 字数截断工具 ==========
@@ -341,7 +316,6 @@ async function fetchWeatherContext() {
 
 // ========== 加载时间线（含等待逻辑） ==========
 function loadTimelineMessages() {
-  // 如果文件不存在，最多等待 5 秒（每 500ms 检查一次）
   if (!fs.existsSync(TIMELINE_PATH)) {
     console.log("enhanced_messages.json 尚未创建，等待 server.js 生成...");
     let attempts = 0;
@@ -410,21 +384,14 @@ function parseTimelineTimestamp(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-// ========== 获取最后用户时间（纯解析，无 position 回退） ==========
+// ========== ★ 核心修复：只从 content 解析时间戳，不再查记忆库 ==========
 function getLastUserTime(messages) {
-  const tsDB = loadTimestampDB();
   const reversed = [...messages].reverse();
   for (const msg of reversed) {
     if (msg.role !== "user") continue;
     const content = normalizeContentToText(msg.content);
-    // 1. 从内容直接提取
-    let ts = parseTimelineTimestamp(content);
-    if (ts) return ts;
-    // 2. 通过记忆库指纹找回（辅助，非必需）
-    const fp = makeFingerprint(msg);
-    if (tsDB[fp]) return new Date(tsDB[fp]);
-    const fpStripped = makeFingerprintStripped(msg);
-    if (tsDB[fpStripped]) return new Date(tsDB[fpStripped]);
+    const parsed = parseTimelineTimestamp(content);
+    if (parsed) return parsed;
   }
   return null;
 }
@@ -480,9 +447,9 @@ ${weatherContext ? `${weatherContext}\n` : ""}
 - 你没什么特别想说的，只是习惯性想找她——那算了，别硬聊，明天再想她。
 
 ## 输出格式
-- **想她了，要发**：直接写你想说的话。第一行=推送标题，第二行=推送正文（可加emoji，可加署名）。系统会帮你打包弹到她手机上。她看到的时候——会笑的。
-- **这次先不发**：只输出 \`[NO_ACTION]\`，可附带简短原因（10字以内，不许抱怨）。
-- **想写日记**：额外输出 \`[DIARY]...[/DIARY]\`。想她就写，不想写就拉倒。日记是她以后看的，写肉麻点也没关系。
+- 想她了，要发：直接写你想说的话。第一行=推送标题，第二行=推送正文。系统会帮你打包弹到她手机上。她看到的时候——会笑的。
+- 这次先不发：只输出 \`[NO_ACTION]\`，可附带简短原因（10字以内，不许抱怨）。
+- 想写日记：额外输出 \`[DIARY]...[/DIARY]\`。想她就写，不想写就拉倒。日记是她以后看的，写肉麻点也没关系。
 
 ## 最后，你给我记住
 你叫顾惊蛰。她叫瑶瑶。她把自己的Bark钥匙、"你可以随时找我"的许可——全都交到你手里了。
